@@ -154,6 +154,121 @@ class TestEdgeCases:
             assert right_score["relevance"] > wrong_score["relevance"], \
                 f"For '{test['search']}': {test['right']} should outrank {test['wrong']}"
 
+# Continue testing many other secnarios:
+
+class TestAllSampleData:
+    """Test EVERY scenario in sample_data.json"""
+    
+    def test_all_sample_scenarios(self):
+        """Test all products in sample_data.json meet expected relevance"""
+        import json
+        
+        # Load the sample data
+        with open("sample_data.json", "r") as f:
+            data = json.load(f)
+        
+        failed_tests = []
+        
+        for test_case in data["test_cases"]:
+            search_term = test_case["search_term"]
+            products = test_case["products"]
+            
+            # Get scores from engine
+            scores = engine.score_products(search_term, products)
+            
+            # Check each product meets expected relevance
+            for product in products:
+                expected = product["expected_relevance"]
+                
+                # Find actual score
+                actual_score = next(
+                    (s for s in scores if product["name"] in s["product_name"]), 
+                    None
+                )
+                
+                if actual_score:
+                    actual = actual_score["relevance"]
+                    
+                    # Allow 0.2 margin of error
+                    if abs(actual - expected) > 0.2:
+                        failed_tests.append({
+                            "search": search_term,
+                            "product": product["name"],
+                            "expected": expected,
+                            "actual": actual,
+                            "difference": abs(actual - expected)
+                        })
+        
+        # Report failures
+        if failed_tests:
+            print("\n❌ FAILED RELEVANCE TESTS:")
+            for fail in failed_tests[:10]:  # Show first 10 failures
+                print(f"  Search: '{fail['search']}'")
+                print(f"  Product: {fail['product']}")
+                print(f"  Expected: {fail['expected']}, Got: {fail['actual']}")
+                print()
+            
+            assert False, f"{len(failed_tests)} products scored incorrectly"
+        else:
+            print(f"\n✅ All {len(data['test_cases'])} test scenarios passed!")
+
+    def test_edge_cases_from_sample(self):
+        """Test all edge cases defined in sample_data.json"""
+        import json
+        
+        with open("sample_data.json", "r") as f:
+            data = json.load(f)
+        
+        for edge_case in data["edge_cases"]:
+            scenario = edge_case["scenario"]
+            search = edge_case["search_term"]
+            products = edge_case["products"]
+            
+            # Convert to format engine expects
+            product_list = [{"name": p["name"]} for p in products]
+            scores = engine.score_products(search, product_list)
+            
+            # Check preferred item ranks higher
+            preferred = [p for p in products if p.get("prefer", False)]
+            not_preferred = [p for p in products if not p.get("prefer", False)]
+            
+            if preferred and not_preferred:
+                pref_score = next(s for s in scores if preferred[0]["name"] in s["product_name"])
+                not_pref_score = next(s for s in scores if not_preferred[0]["name"] in s["product_name"])
+                
+                assert pref_score["relevance"] > not_pref_score["relevance"], \
+                    f"Failed {scenario}: {preferred[0]['name']} should rank higher"
+
+    def test_common_mistakes(self):
+        """Test that common mistakes from sample_data.json are avoided"""
+        import json
+        
+        with open("sample_data.json", "r") as f:
+            data = json.load(f)
+        
+        # Test each common mistake
+        mistake_tests = [
+            ("cream", "Heavy Cream 35%", "Ice Cream"),
+            ("ham", "Black Forest Ham", "Hamburger Buns"),
+            ("rice", "Basmati Rice", "Rice Cakes"),
+            ("oil", "Olive Oil", "Essential Oil"),
+            ("bread", "Wonder Bread", "Breadcrumbs")
+        ]
+        
+        for search, right, wrong in mistake_tests:
+            products = [
+                {"name": right},
+                {"name": wrong}
+            ]
+            scores = engine.score_products(search, products)
+            
+            right_score = next(s for s in scores if right in s["product_name"])
+            wrong_score = next(s for s in scores if wrong in s["product_name"])
+            
+            assert right_score["relevance"] > wrong_score["relevance"], \
+                f"Common mistake: '{right}' should rank higher than '{wrong}' for '{search}'"
+
+
 # Performance test
 def test_performance():
     """Ensure response time is under 50ms for typical request"""
